@@ -88,7 +88,6 @@ async def upload_files_for_course(request: Request):
             "message": "Курс успешно получен",
             "folder_id": uuid_for_course_folder,
             "chapters_count": len(course_structure.get("chapters", [])),
-            "chapters": chapters_info
         }
 
     except json.JSONDecodeError as e:
@@ -98,7 +97,7 @@ async def upload_files_for_course(request: Request):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
 
-@app.post("/generate-course/{folder_id}")
+@app.get("/generate-course/{folder_id}")
 def generate_course(request: Request, folder_id: str):
     # в этом роуте будет происходить вызов агентов
     # пока моковый ответ
