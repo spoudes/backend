@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 from pathlib import Path
-
+from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -35,8 +35,8 @@ async def upload_files_for_course(request: Request):
 
         course_structure = json.loads(course_structure_str)
         course_title = course_structure.get("course_title", "Untitled")
-
-        course_dir = UPLOAD_DIR / course_title.replace(" ", "_")
+        uuid_for_course_folder = uuid4()
+        course_dir = UPLOAD_DIR / uuid_for_course_folder
         course_dir.mkdir(parents=True, exist_ok=True)
 
         chapter_files: dict[int, list] = defaultdict(list)
@@ -86,7 +86,7 @@ async def upload_files_for_course(request: Request):
         return {
             "status": "success",
             "message": "Курс успешно получен",
-            "course_title": course_title,
+            "folder_id": uuid_for_course_folder,
             "chapters_count": len(course_structure.get("chapters", [])),
             "chapters": chapters_info
         }
