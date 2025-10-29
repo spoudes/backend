@@ -24,8 +24,8 @@ UPLOAD_DIR = Path("uploaded_files")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@app.post("/generate-course")
-async def generate_course(request: Request):
+@app.post("/upload-files")
+async def upload_files_for_course(request: Request):
     try:
         form = await request.form()
 
@@ -97,3 +97,9 @@ async def generate_course(request: Request):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
+
+@app.post("/generate-course/{folder_id}")
+def generate_course(request: Request, folder_id: str):
+    # в этом роуте будет происходить вызов агентов
+    # пока моковый ответ
+    return {"folder_id": folder_id}
