@@ -1,7 +1,7 @@
 import json
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 
@@ -77,7 +77,7 @@ class QuizGeneratorAgent:
 
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash", temperature: float = 0.7):
         """Инициализация агента"""
-        self.llm = ChatOpenAI(
+        self.llm = ChatGoogleGenerativeAI(
             api_key=api_key,
             model=model,
             temperature=temperature
@@ -237,12 +237,12 @@ class QuizGeneratorAgent:
 
             chapter_questions = {
                 "title": chapter["title"],
-                "questions": self.generate_questions(
-                    content=chapter["content"],
-                    topic=chapter["title"],
-                    questions_per_type=questions_per_topic,
-                    difficulty_distribution=difficulty_distribution
-                ).model_dump(),
+                # "questions": self.generate_questions(
+                #     content=chapter["content"],
+                #     topic=chapter["title"],
+                #     questions_per_type=questions_per_topic,
+                #     difficulty_distribution=difficulty_distribution
+                # ).model_dump(),
                 "sub_topics": []
             }
 
@@ -271,9 +271,13 @@ class QuizGeneratorAgent:
 
         return all_questions
 
-    def save_questions(self, questions: dict, output_file: str):
+    def save_questions(self, questions: dict, pre_output_file: str):
         """Сохранение вопросов в JSON файл"""
+
+        output_file = f"{pre_output_file}_question.json"
+
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(questions, f, ensure_ascii=False, indent=2)
 
         print(f"\nВопросы успешно сохранены в {output_file}!")
+        return output_file

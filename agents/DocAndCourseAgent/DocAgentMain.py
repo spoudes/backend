@@ -16,22 +16,11 @@ from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
 
-import tools as t
+import DocAndCourseAgent.DocAgentTools as t
+
 load_dotenv()
 
-# ===============================================================
-# Шаг 2: Инструменты для парсинга (остаются без изменений)
-# ===============================================================
-@tool
-def read_text_file(file_path: str) -> str:
-    """
-    Читает и возвращает текстовое содержимое из файла .txt.
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return f.read()
-
-file_parsers = {".txt": read_text_file} # Упрощенный для примера
-
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 # ===============================================================
 # Шаг 3: Собираем граф с новым узлом для сохранения
 # ===============================================================
@@ -46,8 +35,6 @@ class GraphState(TypedDict):
     
     populated_course: Optional[dict]
     output_file_path: Optional[str] 
-
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 
 def parse_files_node(state: GraphState) -> Dict[str, Any]:
     """
@@ -155,6 +142,7 @@ def save_course_node(state: GraphState) -> Dict[str, str]:
     """
     print("--- Узел 3: Сохранение итогового файла ---")
     populated_course = state.get("populated_course")
+
     if not populated_course:
         print("Ошибка: курс не был заполнен, нечего сохранять.")
         return {}
@@ -162,8 +150,15 @@ def save_course_node(state: GraphState) -> Dict[str, str]:
     course_title = populated_course.get("course_title", "untitled_course").replace(' ', '_').lower()
     output_filename = f"{course_title}_final.json"
     
+    course_to_save = {
+        "course_title": populated_course.get("course_title"),
+        "chapters": populated_course.get("chapters"),
+        "output_file_path": output_filename  # Добавляем путь ПЕРЕД сохранением
+    }
+    
     with open(output_filename, "w", encoding="utf-8") as f:
-        json.dump(populated_course, f, indent=2, ensure_ascii=False)
+        json.dump(course_to_save, f, indent=2, ensure_ascii=False)
+
         
     print(f"Курс успешно сохранен в файл: {output_filename}")
     return {"output_file_path": output_filename}
@@ -181,54 +176,55 @@ workflow.add_edge("parse_files", "fill_content")
 workflow.add_edge("fill_content", "save_json")
 workflow.add_edge("save_json", END)
 
-app = workflow.compile()
+DocAndCourseAgent = workflow.compile()
 
 # ===============================================================
 # Шаг 4: Запуск и проверка результата
 # ===============================================================
-if __name__ == "__main__":
-    with open("doc1.txt", "w", encoding="utf-8") as f:
-        f.write("Эйнштейн создал теорию относительности.")
 
-    with open("doc2.txt", "w", encoding="utf-8") as f:
-        f.write("Менделеев создал таблицу химических элементов")
+# with open("doc1.txt", "w", encoding="utf-8") as f:
+#     f.write("Эйнштейн создал теорию относительности.")
 
-    user_files = ["doc1.txt", "doc2.txt"]
+# with open("doc2.txt", "w", encoding="utf-8") as f:
+#     f.write("Менделеев создал таблицу химических элементов")
 
-    user_course_struct = {
-      "course_title": "Великие Ученые",
-      "chapters": [
-        {
-          "title": "Физики",
-          "content": "",
-          "sub_topics": [
-            {
-              "title": "Эйнштейн",
-              "content": "",
-              "sub_topics": []
-            }
-          ]
-        },
-        {
-          "title": "Химики",
-          "content": "",
-          "sub_topics": [
-            {
-              "title": "Менделеев",
-              "content": "",
-              "sub_topics": []
-            }
-          ]
-        }
-      ]
-    }
-    
-    initial_state = {
-        "file_paths": user_files,
-        "input_course_json": user_course_struct
-    }
-    
-    final_state = app.invoke(initial_state)
-    
-    print("\n\n--- ИТОГОВОЕ СОСТОЯНИЕ ГРАФА ---")
-    pprint(final_state, sort_dicts=False)
+# user_files = ["doc1.txt", "doc2.txt"]
+
+# user_course_struct = {
+#     "course_title": "Великие ученые",
+#     "chapters": [
+#     {
+#         "title": "Физики",
+#         "content": "",
+#         "sub_topics": [
+#         {
+#             "title": "Эйнштейн",
+#             "content": "",
+#             "sub_topics": []
+#         }
+#         ]
+#     },
+#     {
+#         "title": "Химики",
+#         "content": "",
+#         "sub_topics": [
+#         {
+#             "title": "Менделеев",
+#             "content": "",
+#             "sub_topics": []
+#         }
+#         ]
+#     }
+#     ]
+# }
+
+# initial_state = {
+#     "file_paths": user_files,
+#     "input_course_json": user_course_struct
+# }
+
+# final_state = DocAndCourseAgent.invoke(initial_state)
+
+# print("\n\n--- ИТОГОВОЕ СОСТОЯНИЕ ГРАФА ---")
+# pprint(final_state, sort_dicts=False)
+# Допустим получаем также uuid = 1 => сохраняем в courses_src в директорию course_1
