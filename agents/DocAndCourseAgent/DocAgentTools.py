@@ -6,11 +6,32 @@ from langchain.tools import tool
 # @tool
 def parse_txt(file_path: str) -> str:
     """
-    Читает и возвращает текстовое содержимое из файла .txt.
+    Читает текстовый файл с автоопределением кодировки (UTF-8 или Windows-1251).
     """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return f.read()
+    # Пробуем UTF-8
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            if content.strip():  # Проверяем, что файл не пустой
+                print(f"✅ {file_path}: UTF-8, {len(content)} символов")
+                return content
+    except UnicodeDecodeError:
+        pass
 
+    # Fallback на Windows-1251 (cp1251)
+    try:
+        with open(file_path, 'r', encoding='cp1251') as f:
+            content = f.read()
+            print(f"✅ {file_path}: Windows-1251 (cp1251), {len(content)} символов")
+            return content
+    except UnicodeDecodeError:
+        pass
+
+    # Последний fallback: latin-1 (никогда не падает)
+    with open(file_path, 'r', encoding='latin-1') as f:
+        content = f.read()
+        print(f"⚠️ {file_path}: latin-1 (возможно некорректно), {len(content)} символов")
+        return content
 # @tool
 def parse_docx(file_path: str) -> str:
     """

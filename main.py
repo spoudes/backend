@@ -1,10 +1,18 @@
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
+from starlette.responses import Response
+
+from agents.DocAndCourseAgent.DocAgentMain import DocAndCourseAgent
+from agents.course_agent.quiz_generator import QuizGeneratorAgent
+from agents.liascript_generator import generate_liascript_from_json
+from agents.liascript_generator.validate_and_cleanify import validate_liascript, clean_liascript
+from agents.orchestrator_tools import merge_course_data
 
 app = FastAPI(title="MultiAgent System")
 app.add_middleware(
@@ -34,11 +42,12 @@ async def upload_files_for_course(request: Request):
             raise HTTPException(status_code=400, detail="Отсутствует course_structure")
 
         course_structure = json.loads(course_structure_str)
-        course_title = course_structure.get("course_title", "Untitled")
-        uuid_for_course_folder = uuid4()
-        course_dir = UPLOAD_DIR / uuid_for_course_folder
-        course_dir.mkdir(parents=True, exist_ok=True)
 
+        uuid_for_course_folder = uuid4()
+        course_dir = UPLOAD_DIR / str(uuid_for_course_folder)
+        course_dir.mkdir(parents=True, exist_ok=True)
+        with open(course_dir / "user_course.json", "w", encoding="utf-8") as f:
+            json.dump(course_structure, f, ensure_ascii=False, indent=4)
         chapter_files: dict[int, list] = defaultdict(list)
 
         chapter_keys = set()
@@ -98,7 +107,73 @@ async def upload_files_for_course(request: Request):
         raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
 
 @app.get("/generate-course/{folder_id}")
-def generate_course(request: Request, folder_id: str):
-    # в этом роуте будет происходить вызов агентов
-    # пока моковый ответ
-    return {"folder_id": folder_id}
+def generate_course(folder_id: str):
+    folder_path = f'uploaded_files/{folder_id}'
+    user_files = [str(p) for p in Path(folder_path).rglob('*') if p.is_file()]
+    with open(f'uploaded_files/{folder_id}/user_course.json', 'r', encoding="utf-8") as fil:
+        user_course_struct = json.load(fil)
+    print(user_files)
+    print(user_course_struct)
+    initial_state = {
+        "file_paths": user_files,
+        "input_course_json": user_course_struct
+    }
+
+    final_state = DocAndCourseAgent.invoke(initial_state)
+
+    populated_course = final_state["populated_course"]
+
+    # ======Второй агент=======
+
+    QuizAgent = QuizGeneratorAgent(api_key=os.getenv("GOOGLE_API_KEY"),
+                                   model="gemini-2.5-flash",
+                                   temperature=0.7)
+
+    difficulty_dist = {
+        "легкий": 1,
+        "средний": 1,
+        "сложный": 1
+    }
+    all_questions = QuizAgent.process_course(
+        course_data=populated_course,
+        questions_per_topic=3,  # 3 вопроса каждого типа
+        difficulty_distribution=difficulty_dist
+    )
+
+    pre_out_put_filename = populated_course["course_title"]
+
+    output_file = QuizAgent.save_questions(questions=all_questions,
+                                           pre_output_file=pre_out_put_filename)
+
+    with open(f"{output_file}", 'r', encoding='utf-8') as f:  # распаковываем question
+        unpacked_question_file = json.load(f)
+
+    new_output_file = f"{pre_out_put_filename}_merge.json"  # json для 3 агента с liaskript
+
+    merge_output_file = merge_course_data(course_file=populated_course,
+                                          questions_file=unpacked_question_file,
+                                          output_file=new_output_file)
+
+    liascript_markup = generate_liascript_from_json(json_data=merge_output_file,
+                                                    use_ai_validation=True)
+
+
+    is_valid, message = validate_liascript(liascript_markup)
+
+    if is_valid:
+        print(f"✓ Валидация пройдена: {message}")
+    else:
+        liascript_markup = clean_liascript(liascript_markup)
+        is_valid, message = validate_liascript(liascript_markup)
+        print(f"После очистки: {message}")
+
+    return Response(
+        content=liascript_markup,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Type": "text/markdown; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+

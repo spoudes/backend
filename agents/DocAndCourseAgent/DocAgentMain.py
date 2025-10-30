@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
 
-import DocAndCourseAgent.DocAgentTools as t
+from . import DocAgentTools as t
 
 load_dotenv()
 
