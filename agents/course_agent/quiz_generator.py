@@ -1,5 +1,7 @@
 import json
-from typing import List, Literal, Optional
+import asyncio
+import hashlib
+from typing import List, Literal, Optional, Dict
 from pydantic import BaseModel, Field, field_validator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -64,16 +66,24 @@ class OpenEndedQuestion(BaseModel):
 class QuestionSet(BaseModel):
     """Набор вопросов для конкретной темы"""
     topic: str = Field(description="Название темы")
-    multiple_choice: List[MultipleChoiceQuestion] = Field(default_factory=list,
-                                                          description="Вопросы множественного выбора")
-    true_false: List[TrueFalseQuestion] = Field(default_factory=list, description="Вопросы верно/неверно")
-    open_ended: List[OpenEndedQuestion] = Field(default_factory=list, description="Открытые вопросы")
+    multiple_choice: List[MultipleChoiceQuestion] = Field(
+        default_factory=list,
+        description="Вопросы множественного выбора"
+    )
+    true_false: List[TrueFalseQuestion] = Field(
+        default_factory=list,
+        description="Вопросы верно/неверно"
+    )
+    open_ended: List[OpenEndedQuestion] = Field(
+        default_factory=list,
+        description="Открытые вопросы"
+    )
 
 
 # ============ LLM-агент ============
 
 class QuizGeneratorAgent:
-    """Агент для генерации качественных тестовых вопросов"""
+    """Агент для генерации качественных тестовых вопросов с async и кэшированием"""
 
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash", temperature: float = 0.7):
         """Инициализация агента"""
@@ -89,7 +99,36 @@ class QuizGeneratorAgent:
             method="json_mode"  # Используем JSON mode для большей надежности
         )
 
-    def _create_prompt(self, content: str, topic: str, questions_count: dict) -> ChatPromptTemplate:
+        # Инициализируем кэш результатов LLM
+        self._llm_cache: Dict[str, QuestionSet] = {}
+
+    def _make_cache_key(
+            self,
+            content: str,
+            topic: str,
+            questions_per_type: int,
+            difficulty_distribution: Optional[dict]
+    ) -> str:
+        """
+        Создание уникального ключа кэша на основе параметров запроса.
+        Используем SHA256 для компактности.
+        """
+        cache_params = {
+            "content": content,
+            "topic": topic,
+            "questions_per_type": questions_per_type,
+            "difficulty_distribution": difficulty_distribution or {},
+        }
+        cache_str = json.dumps(cache_params, sort_keys=True, ensure_ascii=False)
+        cache_key = hashlib.sha256(cache_str.encode()).hexdigest()
+        return cache_key
+
+    def _create_prompt(
+            self,
+            content: str,
+            topic: str,
+            questions_count: dict
+    ) -> ChatPromptTemplate:
         """Создание промпта для генерации вопросов"""
         template = ChatPromptTemplate.from_messages([
             ("system", """Ты опытный педагог и методист. Создавай качественные тестовые задания в формате JSON.
@@ -138,10 +177,17 @@ class QuizGeneratorAgent:
 
 Верни результат в виде JSON объекта со структурой QuestionSet.""")
         ])
-
         return template
 
-    def generate_questions(
+    async def _async_chain_invoke(self, chain, args: dict):
+        """
+        Асинхронное выполнение chain.invoke в отдельном потоке.
+        Необходимо, так как LangChain's chain.invoke() - синхронная функция.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: chain.invoke(args))
+
+    async def generate_questions(
             self,
             content: str,
             topic: str,
@@ -150,7 +196,7 @@ class QuizGeneratorAgent:
             max_retries: int = 3
     ) -> QuestionSet:
         """
-        Генерация набора вопросов с повторными попытками при ошибках
+        Асинхронная генерация набора вопросов с повторными попытками и кэшированием.
 
         Args:
             content: Учебный контент
@@ -160,9 +206,15 @@ class QuizGeneratorAgent:
             max_retries: Максимальное количество попыток при ошибке
 
         Returns:
-            QuestionSet: Набор вопросов
+            QuestionSet: Набор вопросов (валидированный через Pydantic)
         """
-        # Установка распределения по умолчанию
+
+        # 1. Проверка кэша ДО всех операций
+        cache_key = self._make_cache_key(content, topic, questions_per_type, difficulty_distribution)
+        if cache_key in self._llm_cache:
+            return self._llm_cache[cache_key]
+
+        # 2. Установка распределения по умолчанию
         if difficulty_distribution is None:
             easy = questions_per_type // 3 or 1
             medium = questions_per_type // 3 or 1
@@ -173,14 +225,14 @@ class QuizGeneratorAgent:
                 "сложный": hard
             }
 
-        # Создание промпта
+        # 3. Создание промпта и цепи
         prompt = self._create_prompt(content, topic, difficulty_distribution)
         chain = prompt | self.question_generator
 
-        # Попытки генерации с обработкой ошибок
+        # 4. Попытки генерации с обработкой ошибок
         for attempt in range(max_retries):
             try:
-                result = chain.invoke({
+                args = {
                     "topic": topic,
                     "content": content,
                     "mc_count": questions_per_type,
@@ -189,42 +241,77 @@ class QuizGeneratorAgent:
                     "easy_count": difficulty_distribution.get("легкий", 1),
                     "medium_count": difficulty_distribution.get("средний", 1),
                     "hard_count": difficulty_distribution.get("сложный", 1)
-                })
+                }
 
-                # Проверка, что хотя бы один тип вопросов сгенерирован
+                # Асинхронный вызов
+                result = await self._async_chain_invoke(chain, args)
+
+                # 5. Валидация результата (происходит автоматически в Pydantic)
                 if not (result.multiple_choice or result.true_false or result.open_ended):
                     if attempt < max_retries - 1:
-                        print(f"Попытка {attempt + 1}: Пустой результат, повторяем...")
+                        print(f"  Попытка {attempt + 1}: Пустой результат для '{topic}', повторяем...")
+                        await asyncio.sleep(0.5)  # Небольшая задержка перед retry
                         continue
                     else:
-                        print(f"ВНИМАНИЕ: для темы '{topic}' не удалось сгенерировать все вопросы")
+                        print(f"  ВНИМАНИЕ: для темы '{topic}' не удалось сгенерировать все вопросы")
+                        # Кэшируем и возвращаем даже если пусто
+                        self._llm_cache[cache_key] = result
+                        return result
 
+                # 6. Сохранение в кэш и возврат
+                print(f"  Успешно сгенерировано для '{topic}' (попытка {attempt + 1})")
+                self._llm_cache[cache_key] = result
                 return result
 
             except Exception as e:
                 if attempt < max_retries - 1:
-                    print(f"Попытка {attempt + 1} не удалась для темы '{topic}': {str(e)}")
-                    print("Повторяем попытку...")
+                    print(f"  Попытка {attempt + 1} не удалась для '{topic}': {str(e)}")
+                    print(f"  Повторяем попытку...")
+                    await asyncio.sleep(0.5)
                 else:
-                    print(f"ОШИБКА генерации для темы '{topic}' после {max_retries} попыток: {str(e)}")
-                    # Возвращаем пустой набор вопросов
-                    return QuestionSet(
-                        topic=topic,
-                        multiple_choice=[],
-                        true_false=[],
-                        open_ended=[]
-                    )
+                    print(f"  ОШИБКА генерации для темы '{topic}' после {max_retries} попыток: {str(e)}")
 
-        # На случай если цикл завершился без return
-        return QuestionSet(topic=topic, multiple_choice=[], true_false=[], open_ended=[])
+        # 7. Fallback: возвращаем пустой набор, но валидный через Pydantic
+        empty_result = QuestionSet(
+            topic=topic,
+            multiple_choice=[],
+            true_false=[],
+            open_ended=[]
+        )
+        self._llm_cache[cache_key] = empty_result
+        return empty_result
 
-    def process_course(
+    async def process_course(
             self,
             course_data: dict,
             questions_per_topic: int = 3,
             difficulty_distribution: Optional[dict] = None
     ) -> dict:
-        """Обработка всего курса"""
+        """
+        Асинхронная обработка всего курса с параллелизацией через asyncio.gather().
+
+        Args:
+            course_data: Данные курса со структурой:
+                {
+                    "course_title": "Название",
+                    "chapters": [
+                        {
+                            "title": "Глава 1",
+                            "sub_topics": [
+                                {
+                                    "title": "Подтема",
+                                    "content": "Контент"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            questions_per_topic: Количество вопросов на подтему
+            difficulty_distribution: Распределение сложности
+
+        Returns:
+            dict: Словарь со всеми сгенерированными вопросами
+        """
         all_questions = {
             "course_title": course_data["course_title"],
             "chapters": []
@@ -233,51 +320,71 @@ class QuizGeneratorAgent:
         total_chapters = len(course_data["chapters"])
 
         for idx, chapter in enumerate(course_data["chapters"], 1):
-            print(f"\nОбрабатываем главу {idx}/{total_chapters}: '{chapter['title']}'")
+            print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"Обработка главы {idx}/{total_chapters}: '{chapter['title']}'")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+            subtopics = chapter.get("sub_topics", [])
             chapter_questions = {
                 "title": chapter["title"],
-                # "questions": self.generate_questions(
-                #     content=chapter["content"],
-                #     topic=chapter["title"],
-                #     questions_per_type=questions_per_topic,
-                #     difficulty_distribution=difficulty_distribution
-                # ).model_dump(),
                 "sub_topics": []
             }
 
-            # Обработка подтем
-            sub_topics = chapter.get("sub_topics", [])
-            if sub_topics:
-                print(f"  ├─ Найдено подтем: {len(sub_topics)}")
+            # Создаем задачи для всех подтем в главе
+            async def process_subtopic(subtopic):
+                """Обработка одной подтемы"""
+                print(f"  -> Обработка подтемы: '{subtopic['title']}'...")
+                subtopic_questions = await self.generate_questions(
+                    content=subtopic["content"],
+                    topic=subtopic["title"],
+                    questions_per_type=questions_per_topic,
+                    difficulty_distribution=difficulty_distribution
+                )
+                return {
+                    "title": subtopic["title"],
+                    "questions": subtopic_questions.model_dump()
+                }
 
-                for sub_idx, sub_topic in enumerate(sub_topics, 1):
-                    print(f"  ├─ Подтема {sub_idx}/{len(sub_topics)}: '{sub_topic['title']}'")
-
-                    sub_topic_questions = self.generate_questions(
-                        content=sub_topic["content"],
-                        topic=sub_topic["title"],
-                        questions_per_type=questions_per_topic,
-                        difficulty_distribution=difficulty_distribution
-                    ).model_dump()
-
-                    chapter_questions["sub_topics"].append({
-                        "title": sub_topic["title"],
-                        "questions": sub_topic_questions
-                    })
+            # Параллельное выполнение всех подтем
+            if subtopics:
+                print(f"  Запускаем параллельную обработку {len(subtopics)} подтем...")
+                subtopic_results = await asyncio.gather(
+                    *[process_subtopic(subtopic) for subtopic in subtopics],
+                    return_exceptions=False  # Если нужна обработка исключений отдельно
+                )
+                chapter_questions["sub_topics"] = subtopic_results
+            else:
+                print(f"  В главе нет подтем")
 
             all_questions["chapters"].append(chapter_questions)
-            print(f"  └─ Глава '{chapter['title']}' обработана!")
+            print(f"  Глава завершена")
 
         return all_questions
 
-    def save_questions(self, questions: dict, pre_output_file: str):
-        """Сохранение вопросов в JSON файл"""
+    def save_questions(self, questions: dict, output_file: str = "quiz_output.json") -> str:
+        """
+        Сохранение вопросов в JSON файл.
 
-        output_file = f"{pre_output_file}_question.json"
+        Args:
+            questions: Словарь с вопросами
+            output_file: Путь для сохранения
 
+        Returns:
+            str: Путь к сохраненному файлу
+        """
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(questions, f, ensure_ascii=False, indent=2)
-
-        print(f"\nВопросы успешно сохранены в {output_file}!")
+        print(f"\n Вопросы сохранены в файл: {output_file}")
         return output_file
+
+    def clear_cache(self):
+        """Очистка кэша LLM (полезно при работе с большим объемом данных)"""
+        self._llm_cache.clear()
+        print("Кэш очищен")
+
+    def get_cache_stats(self) -> dict:
+        """Получение статистики кэша"""
+        return {
+            "cache_size": len(self._llm_cache),
+            "keys": list(self._llm_cache.keys())[:5]  # Показываем первые 5 ключей
+        }
