@@ -3,6 +3,8 @@ import json
 from typing import List, Dict, Any
 import copy
 import asyncio
+from datetime import datetime
+import gc
 
 from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import Chroma
@@ -85,6 +87,21 @@ class CourseContentAgent:
         # Повторять только если ошибка связана с Rate Limit (код 429)
         retry=retry_if_exception_type(Exception) 
     )
+
+    async def shutdown(self):
+        """Явно освобождает ресурсы перед завершением работы."""
+        print("--- Shutdown: Очистка ресурсов агента ---")
+        
+        # 1. Сбрасываем ссылки на объекты Chroma/Retriever
+        self.vector_store = None
+        self.retriever = None
+        
+        # 2. Если бы вы хранили сессии aiohttp явно, их надо было бы закрыть тут.
+        # LangChain обычно закрывает их сам при удалении объекта, но gc.collect помогает.
+        
+        # 3. Принудительная сборка мусора
+        gc.collect()
+        print("--- Shutdown: Ресурсы очищены ---")
 
     async def _safe_text_llm_call(self, prompt):
         return await self.text_llm.ainvoke(prompt)
@@ -170,7 +187,7 @@ class CourseContentAgent:
         # 2. Разбиение на чанки (Chunking)
         # Размер чанка важен: 1000 символов достаточно для контекста, overlap 200 сохраняет смысл на стыках
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
+            chunk_size=800,
             chunk_overlap=200,
             separators=["\n\n", "\n", ".", " ", ""]
         )
@@ -190,7 +207,7 @@ class CourseContentAgent:
         
         # Создаем ретривер (инструмент поиска)
         # k=5 означает, что мы берем 5 самых релевантных кусков текста для каждого запроса
-        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 5})
+        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
         print("--- Векторная база готова и сохранена на диск ---")
 
     async def _generate_content_node(self, node_title: str, context_hierarchy: List[str],
@@ -306,9 +323,6 @@ class CourseContentAgent:
             # topics=topics
             )
 
-        print(final_prompt)
-        
-        # Вызов модели
         response = await self._safe_text_llm_call(final_prompt)
 
                 # --- ЛОГИРОВАНИЕ ДЛЯ RAGAS ---
@@ -402,7 +416,7 @@ class CourseContentAgent:
         """
         return self.text_llm.invoke(prompt).content
 
-    def evaluate_performance(self, output_dir="logs/ContentCourseAgent", output_file="quality_report.json"):
+    def evaluate_performance(self, output_dir="logs/ContentCourseAgent", output_file=f"quality_report{datetime.now().strftime("%H_%M_%S")}.json"):
         """
         Запускает RAGAS оценку на всех накопленных логах.
         """
