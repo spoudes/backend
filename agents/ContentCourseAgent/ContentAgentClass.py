@@ -3,34 +3,26 @@ import json
 from typing import List, Dict, Any
 import copy
 import asyncio
-# Импорты LangChain и Google
-import openai
 
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
-from langchain_core.prompts.prompt import PromptTemplate
 from langchain.messages import HumanMessage
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+import pandas as pd
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy
 
-import pandas as pd
 from dotenv import load_dotenv
 
-from agents.ContentCourseAgent.ocr import MistralOCRLoader
-from agents.ContentCourseAgent.security_agent import SecurityAgent
+from agents.ContentCourseAgent.ContentAgentOCR import MistralOCRLoader
+from agents.ContentCourseAgent.ContentAgentSec import SecurityAgent
 
-# Настройка API ключа (замените на свой или используйте переменную окружения)
-# os.environ["GOOGLE_API_KEY"] = "ВАШ_КЛЮЧ_ЗДЕСЬ"
-# load_dotenv()
 load_dotenv()
 
 class CourseContentAgent:
@@ -410,7 +402,7 @@ class CourseContentAgent:
         """
         return self.text_llm.invoke(prompt).content
 
-    def evaluate_performance(self, output_file="quality_report.json"):
+    def evaluate_performance(self, output_dir="logs/ContentCourseAgent", output_file="quality_report.json"):
         """
         Запускает RAGAS оценку на всех накопленных логах.
         """
@@ -448,12 +440,15 @@ class CourseContentAgent:
         print("\n=== Результаты оценки ===")
         print(results)
 
+        os.makedirs(output_dir, exist_ok=True)
+        full_path = os.path.join(output_dir, output_file)
+
         # Конвертируем в Pandas DataFrame для удобства
         df = results.to_pandas()
         
         # Сохраняем в JSON (ориентация records удобна для чтения)
-        df.to_json(output_file, orient="records", indent=2, force_ascii=False)
-        print(f"Подробный отчет сохранен в: {output_file}")
+        df.to_json(full_path, orient="records", indent=2, force_ascii=False)
+        print(f"Подробный отчет сохранен в: {os.path.abspath(full_path)}")
         
         # Возвращаем средние значения
         return results

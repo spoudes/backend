@@ -8,7 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from agents.ContentCourseAgent.DocAgentMain import DocAndCourseAgent
+from agents.ContentCourseAgent.ContentAgentGraph import DocAndCourseAgent
 from agents.QuizAgent.quiz_generator import QuizGeneratorAgent
 from agents.liascript_generator import generate_liascript_from_json
 from agents.liascript_generator.validate_and_cleanify import validate_liascript, clean_liascript

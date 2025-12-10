@@ -7,7 +7,7 @@ import asyncio
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
 
-from .rag import CourseContentAgent
+from .ContentAgentClass import CourseContentAgent
 
 load_dotenv()
 
