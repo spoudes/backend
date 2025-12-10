@@ -8,8 +8,8 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from agents.DocAndCourseAgent.DocAgentMain import DocAndCourseAgent
-from agents.course_agent.quiz_generator import QuizGeneratorAgent
+from agents.ContentCourseAgent.DocAgentMain import DocAndCourseAgent
+from agents.QuizAgent.quiz_generator import QuizGeneratorAgent
 from agents.liascript_generator import generate_liascript_from_json
 from agents.liascript_generator.validate_and_cleanify import validate_liascript, clean_liascript
 from agents.orchestrator_tools import merge_course_data
@@ -107,21 +107,22 @@ async def upload_files_for_course(request: Request):
         raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
 
 @app.get("/generate-course/{folder_id}")
-def generate_course(folder_id: str):
+async def generate_course(folder_id: str):
     folder_path = f'uploaded_files/{folder_id}'
     user_files = [str(p) for p in Path(folder_path).rglob('*') if p.is_file()]
     with open(f'uploaded_files/{folder_id}/user_course.json', 'r', encoding="utf-8") as fil:
         user_course_struct = json.load(fil)
     print(user_files)
     print(user_course_struct)
+
     initial_state = {
         "file_paths": user_files,
-        "input_course_json": user_course_struct
+        "input_course_json": user_course_struct,
+        "populated_course": None,
+        "output_file_path": None
     }
 
-    final_state = DocAndCourseAgent.invoke(initial_state)
-
-    populated_course = final_state["populated_course"]
+    populated_course = await DocAndCourseAgent.ainvoke(initial_state)
 
     # ======Второй агент=======
 
