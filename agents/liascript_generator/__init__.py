@@ -1,6 +1,18 @@
 import json
+import zlib
+import base64
 from langchain_core.runnables import Runnable
 from .llm import simple_chain
+
+
+def encode_kroki_url(mermaid_code: str) -> str:
+    """Конвертирует код Mermaid в URL картинки через сервис Kroki.io"""
+    if not mermaid_code or not mermaid_code.strip():
+        return ""
+    data = mermaid_code.strip().encode('utf-8')
+    compressed = zlib.compress(data, 9)
+    encoded = base64.urlsafe_b64encode(compressed).decode('utf-8')
+    return f"https://kroki.io/mermaid/svg/{encoded}"
 
 
 def parse_json_to_liascript(json_data):
@@ -35,9 +47,10 @@ def parse_json_to_liascript(json_data):
         diagram = chapter.get('diagram')
         if diagram and diagram.strip() != "SKIP":
             liascript_content.append("### Визуализация\n\n")
-            liascript_content.append("```")
-            liascript_content.append(f"{diagram.strip()}\n")
-            liascript_content.append("```\n\n")
+            # Генерируем ссылку
+            img_url = encode_kroki_url(diagram.strip())
+            # Вставляем как картинку
+            liascript_content.append(f"![Схема]({img_url})\n\n")
 
         # Обрабатываем вопросы
         questions = chapter.get('questions', {})
@@ -132,12 +145,11 @@ def process_subtopic(topic, content_list, level=3):
 
     diagram = topic.get('diagram')
     if diagram and diagram.strip() != "SKIP":
-        # Используем заголовок на уровень ниже текущего или просто жирный текст
-        # content_list.append(f"{'#' * (level+1)} Визуализация\n\n")
-        content_list.append("**Визуализация:**\n\n")
-        content_list.append("```")
-        content_list.append(f"{diagram.strip()}\n")
-        content_list.append("```\n\n")
+        content_list.append("### Визуализация\n\n")
+        # Генерируем ссылку
+        img_url = encode_kroki_url(diagram.strip())
+        # Вставляем как картинку
+        content_list.append(f"![Схема]({img_url})\n\n")
 
     # Обрабатываем вопросы подтемы
     questions = topic.get('questions', {})
