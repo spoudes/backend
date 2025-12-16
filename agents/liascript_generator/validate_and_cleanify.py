@@ -12,8 +12,7 @@ def validate_liascript(content: str) -> tuple[bool, str]:
         tuple: (is_valid: bool, error_message: str)
     """
     errors = []
-    
-    # Проверка наличия заголовков разделов
+
     sections = re.findall(r'^#{1,6}\s+.+$', content, re.MULTILINE)
     if not sections:
         errors.append("No section headers found (lines starting with #)")

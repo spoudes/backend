@@ -17,14 +17,13 @@ class MistralOCRLoader:
         filename = os.path.basename(file_path)
         print(f"OCR обработка: {filename}...")
         
-        # 1. Загрузка файла
         with open(file_path, "rb") as f:
             uploaded_file = self.client.files.upload(
                 file={"file_name": filename, "content": f},
                 purpose="ocr"
             )
         
-        # 2. Получение URL и OCR
+        # Получение URL
         signed_url = self.client.files.get_signed_url(file_id=uploaded_file.id)
         ocr_response = self.client.ocr.process(
             model="mistral-ocr-latest",
@@ -58,10 +57,10 @@ class MistralOCRLoader:
                 
                 saved_images[img_id] = {
                     "path": img_path,
-                    "base64": b64_data # Сохраняем временно для Vision модели
+                    "base64": b64_data # Сохраняем временно для модели
                 }
         
-        # Удаляем файл из облака Mistral
+        # Удаляем файл из облака
         self.client.files.delete(file_id=uploaded_file.id)
         
         return full_markdown, saved_images

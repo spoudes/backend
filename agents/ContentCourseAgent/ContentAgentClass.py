@@ -39,11 +39,9 @@ class CourseContentAgent:
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
         )
 
-        # LLM (для генерации текста)
         self.text_llm = ChatOpenAI(
-            model="mistral-medium",
-            temperature=0.2,
-            # convert_system_message_to_human=True,
+            model="mistral-large-2411",
+            temperature=0.2,    
             base_url=os.getenv('MISTRAL_BASE_URL'),
             api_key=os.getenv('MISTRAL_API_KEY')
         )
@@ -82,9 +80,8 @@ class CourseContentAgent:
 
     @retry(
         reraise=True, 
-        stop=stop_after_attempt(10), # Пытаться 10 раз
-        wait=wait_exponential(multiplier=1, min=2, max=60), # Ждать 2с, 4с, 8с...
-        # Повторять только если ошибка связана с Rate Limit (код 429)
+        stop=stop_after_attempt(10),
+        wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(Exception) 
     )
 
@@ -92,21 +89,14 @@ class CourseContentAgent:
         """Явно освобождает ресурсы перед завершением работы."""
         print("--- Shutdown: Очистка ресурсов агента ---")
         
-        # 1. Сбрасываем ссылки на объекты Chroma/Retriever
         self.vector_store = None
         self.retriever = None
-        
-        # 2. Если бы вы хранили сессии aiohttp явно, их надо было бы закрыть тут.
-        # LangChain обычно закрывает их сам при удалении объекта, но gc.collect помогает.
-        
-        # 3. Принудительная сборка мусора
         gc.collect()
         print("--- Shutdown: Ресурсы очищены ---")
 
     async def _safe_text_llm_call(self, prompt):
         return await self.text_llm.ainvoke(prompt)
-
-            # В utils.py или внутри CourseContentAgent
+    
     async def describe_images_with_llm(self, pic_llm, images_dict):
         captions = {}
         print(f"Генерация описаний для {len(images_dict)} изображений...")
@@ -114,7 +104,6 @@ class CourseContentAgent:
         for img_id, data in images_dict.items():
             b64_data = data['base64']
             
-            # Создаем мультимодальное сообщение
             message = HumanMessage(
                 content=[
                     {
@@ -129,7 +118,6 @@ class CourseContentAgent:
             )
             
             try:
-                # Вызов ainvoke, передаем СПИСОК сообщений
                 response = await pic_llm.ainvoke([message])
                 captions[img_id] = response.content
                 print(f"Img {img_id}: Описание готово:")
@@ -184,8 +172,7 @@ class CourseContentAgent:
         if not documents:
             raise ValueError("Не удалось загрузить ни одного документа.")
 
-        # 2. Разбиение на чанки (Chunking)
-        # Размер чанка важен: 1000 символов достаточно для контекста, overlap 200 сохраняет смысл на стыках
+        # Разбиение на чанки
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
             chunk_overlap=200,
@@ -194,8 +181,6 @@ class CourseContentAgent:
         splits = text_splitter.split_documents(documents)
         print(f"Создано {len(splits)} текстовых чанков.")
 
-        # 3. Создание векторного хранилища (Chroma)
-        # Persist_directory не указан, храним в памяти для скорости выполнения скрипта
         if self.vector_store is None:
             self.vector_store = Chroma.from_documents(
                 documents=splits,
@@ -205,8 +190,6 @@ class CourseContentAgent:
         else:
             self.vector_store.add_documents(splits)
         
-        # Создаем ретривер (инструмент поиска)
-        # k=5 означает, что мы берем 5 самых релевантных кусков текста для каждого запроса
         self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
         print("--- Векторная база готова и сохранена на диск ---")
 
@@ -222,12 +205,10 @@ class CourseContentAgent:
         hierarchy_str = " > ".join(context_hierarchy)
         search_query = f"{hierarchy_str} > {node_title}"
         
-        # 1. RAG: Поиск релевантных кусков
         relevant_docs = self.retriever.invoke(search_query)
         
         retrieved_contexts = [doc.page_content for doc in relevant_docs]
 
-        # Собираем текст из найденных кусков
         context_text = "\n\n".join(retrieved_contexts)
         
         if not context_text:
@@ -246,7 +227,6 @@ class CourseContentAgent:
         topics = ""
 
         if has_children:
-        # 2. Промпт для LLM
             topics = ", ".join(children_titles_list) if children_titles_list else ""
             prompt_template = """
         Ты - редактор учебного курса. Твоя задача - написать ВВЕДЕНИЕ к разделу "{title}".
@@ -273,7 +253,6 @@ class CourseContentAgent:
         Твоя задача: Написать 1 абзац (до 4 предложений).
         """
         else:
-            # Для конечного урока
             prompt_template = """
 
             Ты пишешь материал конкретного урока "{title}".
@@ -343,7 +322,6 @@ class CourseContentAgent:
         current_title = node.get("title", node.get("course_title", "Untitled"))
         current_hierarchy = hierarchy + [current_title]
         
-        # 1. Сначала определяем, есть ли дети и как их зовут
         children_titles = []
         # Ищем списки внутри узла (например, "chapters", "sub_topics")
         for key, value in node.items():
@@ -357,7 +335,6 @@ class CourseContentAgent:
         tasks = []
 
         async def fill_current_node_content():
-            # Если есть поле content и оно пустое - заполняем
             if "content" in node and not node["content"].strip():
                 async with semaphore:
                     print(f"Генерация контента для: {' > '.join(current_hierarchy)}")
@@ -388,11 +365,9 @@ class CourseContentAgent:
         if not self.vector_store:
             raise RuntimeError("Сначала загрузите документы через ingest_documents()")
             
-        # Клонируем структуру, чтобы не менять оригинал, если нужно
         result_struct = copy.deepcopy(course_struct)
         
         semaphore = asyncio.Semaphore(max_concurrency)
-        # Запускаем рекурсию
         await self._process_recursive(result_struct, [], semaphore)
         
         return result_struct
@@ -404,11 +379,9 @@ class CourseContentAgent:
         if not self.vector_store:
             raise ValueError("База потеряна! Неоткуда брать информацию.")
             
-        # 1. Ищем информацию в УЖЕ готовой базе (мгновенно, 0 рублей)
         docs = self.retriever.invoke(chapter_title)
         context = "\n".join([d.page_content for d in docs])
         
-        # 2. Просим LLM переписать с учетом фидбека
         prompt = f"""
         Контекст: {context}
         Задача: Перепиши главу "{chapter_title}".
@@ -427,132 +400,35 @@ class CourseContentAgent:
         print(f"--- Запуск оценки качества (RAGAS) для {len(self.trace_logs)} записей ---")
         print("Это может занять время, так как LLM будет проверять каждый ответ...")
 
-        # 1. Подготовка данных в формате HuggingFace Dataset
+        # Подготовка данных в формате HuggingFace Dataset
         data = {
             "question": [log["question"] for log in self.trace_logs],
             "answer": [log["answer"] for log in self.trace_logs],
             "contexts": [log["contexts"] for log in self.trace_logs],
-            # Добавляем ground_truth как пустые строки, так как у нас их нет,
-            # но Ragas иногда требует наличие колонки (зависит от версии)
-            # "ground_truth": [""] * len(self.trace_logs) 
         }
         
         dataset = Dataset.from_dict(data)
 
-        # 2. Запуск оценки
-        # Используем метрики, не требующие эталонного ответа (Ground Truth)
+        # Запуск оценки
         # Faithfulness: не выдумал ли факты?
         # Answer Relevancy: ответил ли на поставленный вопрос?
         results = evaluate(
             dataset=dataset,
             metrics=[faithfulness, answer_relevancy],
-            llm=self.text_llm,        # Используем ту же LLM (Llama-3 через OpenRouter)
+            llm=self.text_llm,
             embeddings=self.embeddings
         )
 
-        # 3. Вывод и сохранение
         print("\n=== Результаты оценки ===")
         print(results)
 
         os.makedirs(output_dir, exist_ok=True)
         full_path = os.path.join(output_dir, output_file)
 
-        # Конвертируем в Pandas DataFrame для удобства
         df = results.to_pandas()
         
-        # Сохраняем в JSON (ориентация records удобна для чтения)
         df.to_json(full_path, orient="records", indent=2, force_ascii=False)
         print(f"Подробный отчет сохранен в: {os.path.abspath(full_path)}")
         
         # Возвращаем средние значения
         return results
-
-
-# if __name__ == "__main__":
-
-#     user_course_struct = {
-#       "course_title": "Грокаем машинное обучение",
-#       "chapters": [
-#         {
-#           "title": "Что такое машинное обучение?",
-#           "content": "",
-#           "sub_topics": [
-#               { "title" : "Машинное обучение повсюду", "content": "" },
-#               { "title" : "Так что же такое машинное обучение?", "content": "" },
-#               { "title" : "Как заставить машины принимать решения с помощью данных?", "content": "" }
-#           ]
-#         },
-#         {
-#           "title": "Типы машинного обучения",
-#           "content": "",
-#           "sub_topics": [
-#             { "title": "В чем разница между размеченными и неразмеченными данными", "content": "" },
-#             { "title": "Контролируемое обучение", "content": "" },
-#             { "title": "Неконтролируемое обучение", "content": "" },
-#           ]
-#         }
-#       ]
-#     }
-
-    # user_course_struct = {
-    #   "course_title": "Великие Ученые",
-    #   "chapters": [
-    #     {
-    #       "title": "Физики",
-    #       "content": "",
-    #       "sub_topics": [
-    #         { "title": "Эйнштейн", "content": "" }
-    #       ]
-    #     },
-    #     {
-    #       "title": "Химики",
-    #       "content": "",
-    #       "sub_topics": [
-    #         { "title": "Менделеев", "content": "" }
-    #       ]
-    #     }
-    #   ]
-    # }
-
-    
-
-    # 3. Загрузка документов (замените пути на реальные файлы)
-    # Для теста создайте simple.txt или используйте существующие pdf
-    # agent.ingest_documents(["./books/physics_history.pdf", "./books/chemistry_basics.docx"])
-    
-    # !!! ДЛЯ ДЕМОНСТРАЦИИ (так как у меня нет ваших файлов) я создам фиктивный документ в памяти
-    # В реальности вы просто вызовете ingest_documents с путями к файлам
-    # class MockDocument:
-    #     def __init__(self, content): self.page_content = content; self.metadata = {}
-    
-    # mock_text_physics = "Альберт Эйнштейн (1879—1955) — физик-теоретик, один из основателей современной теоретической физики. Разработал специальную теорию относительности."
-    # mock_text_chem = "Дмитрий Иванович Менделеев — русский учёный-энциклопедист. Среди наиболее известных открытий — периодический закон химических элементов."
-    
-    # # Ручное создание базы для демо (в проде используйте ingest_documents)
-    # agent.vector_store = Chroma.from_documents(
-    #     [MockDocument(mock_text_physics), MockDocument(mock_text_chem)], 
-    #     agent.embeddings
-    # )
-    # agent.retriever = agent.vector_store.as_retriever()
-    # agent = CourseContentAgent()
-
-    # asyncio.run(agent.ingest_documents(["./ML2060.pdf"]))
-    # # 4. Заполнение структуры
-    # filled_course = asyncio.run(agent.fill_course_structure(user_course_struct, max_concurrency=3))
-
-    # # 5. Вывод результата
-    # output_filename_title = str(filled_course.get("course_title")).strip()
-    # output_filename = f"{output_filename_title}_course.json"
-
-    # course_to_save = {
-    #     "course_title": filled_course.get("course_title"),
-    #     "chapters": filled_course.get("chapters"),
-    #     "output_file_path": output_filename
-    # }
-
-    # with open(output_filename, "w", encoding="utf-8") as f:
-    #     json.dump(course_to_save, f, indent=2, ensure_ascii=False)
-
-    # # print(json.dumps(filled_course, indent=2, ensure_ascii=False))
-
-    # agent.evaluate_performance("rag_quality_report.json")

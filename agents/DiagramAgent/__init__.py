@@ -18,7 +18,6 @@ class DiagramGeneratorAgent:
             api_key=os.getenv('MISTRAL_API_KEY')
         )
 
-        # --- Промпт Генерации ---
         self.gen_prompt = PromptTemplate(
             template="""
             Ты - профессиональный дизайнер информации и эксперт по визуализации учебных материалов.
@@ -67,7 +66,6 @@ class DiagramGeneratorAgent:
             input_variables=["content"]
         )
 
-        # --- Промпт Валидации (оставляем строгим) ---
         self.fix_prompt = PromptTemplate(
             template="""
                     Ты - строгий линтер кода Mermaid.js. 
@@ -103,7 +101,6 @@ class DiagramGeneratorAgent:
 
     async def generate_diagram(self, content: str) -> Optional[str]:
         try:
-            # Даем модели больше контекста (до 3000 символов), чтобы она поняла суть
             raw_code = await self.gen_chain.ainvoke({"content": content[:3000]})
 
             # Чистка от маркдауна

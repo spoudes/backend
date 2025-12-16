@@ -11,12 +11,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ===============================================================
-# Шаг 3: Собираем граф с новым узлом для сохранения
-# ===============================================================
-# rag_agent = CourseContentAgent(persist_dir="./chroma_db")
-
-# --- 3.1: Обновляем состояние графа ---
 class GraphState(TypedDict):
 
     file_paths: List[str]
@@ -24,9 +18,7 @@ class GraphState(TypedDict):
     populated_course: Optional[dict]
     output_file_path: Optional[str] 
     
-# ===============================================================
 # Узлы графа (Nodes)
-# ===============================================================
 def create_doc_agent_graph(rag_agent):
 
     async def ingest_node(state: GraphState) -> Dict[str, Any]:
@@ -41,16 +33,13 @@ def create_doc_agent_graph(rag_agent):
             print("ВНИМАНИЕ: Список файлов пуст!")
             return {}
 
-        # Вызываем метод агента из rag.py
         try:
             await rag_agent.ingest_documents(files)
             print(f"Успешно обработано файлов: {len(files)}")
         except Exception as e:
             print(f"ОШИБКА при загрузке документов: {e}")
-            # Здесь можно решить: прерывать выполнение или пытаться продолжить
-            # raise e 
         
-        return {} # Состояние не меняем, так как данные ушли в ChromaDB (side effect)
+        return {}
 
 
     async def generate_content_node(state: GraphState) -> Dict[str, Any]:
@@ -60,9 +49,7 @@ def create_doc_agent_graph(rag_agent):
         """
         print("\n--- Узел 2: Генерация контента курса (RAG + Security Check) ---")
         course_skeleton = state['input_course_json']
-        
-        # Запускаем "умное" заполнение через агента
-        # fill_course_structure внутри себя вызывает SecurityAgent для проверки контекста
+    
         filled_course = await rag_agent.fill_course_structure(
             course_skeleton, 
             max_concurrency=3 # Количество параллельных запросов к LLM
@@ -87,33 +74,8 @@ def create_doc_agent_graph(rag_agent):
         print("\n--- Узел 4: Сохранение результата ---")
         populated_course = state.get("populated_course")
         return populated_course
-        # if not populated_course:
-        #     print("Ошибка: Курс пуст, нечего сохранять.")
-        #     return {}
-            
-        # course_title = populated_course.get("course_title", "untitled").replace(" ", "_").lower()
-        # output_filename = f"{course_title}_final.json"
-        
-        # # Формируем структуру для сохранения
-        # course_to_save = {
-        #     "course_title": populated_course.get("course_title"),
-        #     "chapters": populated_course.get("chapters"),
-        #     "output_file_path": output_filename
-        # }
 
-        # try:
-        #     with open(output_filename, "w", encoding="utf-8") as f:
-        #         json.dump(course_to_save, f, indent=2, ensure_ascii=False)
-        #     print(f"Файл успешно сохранен: {os.path.abspath(output_filename)}")
-        # except Exception as e:
-        #     print(f"Ошибка сохранения файла: {e}")
-            
-        # return {"output_file_path": output_filename}
-
-
-    # ===============================================================
     # Сборка графа
-    # ===============================================================
 
     workflow = StateGraph(GraphState)
 
@@ -129,54 +91,3 @@ def create_doc_agent_graph(rag_agent):
     workflow.add_edge("save_result", END)
 
     return workflow.compile()
-
-# ===============================================================
-# Шаг 4: Запуск и проверка результата
-# ===============================================================
-
-# with open("doc1.txt", "w", encoding="utf-8") as f:
-#     f.write("Эйнштейн создал теорию относительности.")
-
-# with open("doc2.txt", "w", encoding="utf-8") as f:
-#     f.write("Менделеев создал таблицу химических элементов")
-
-# user_files = ["doc1.txt", "doc2.txt"]
-
-# user_course_struct = {
-#     "course_title": "Великие ученые",
-#     "chapters": [
-#     {
-#         "title": "Физики",
-#         "content": "",
-#         "sub_topics": [
-#         {
-#             "title": "Эйнштейн",
-#             "content": "",
-#             "sub_topics": []
-#         }
-#         ]
-#     },
-#     {
-#         "title": "Химики",
-#         "content": "",
-#         "sub_topics": [
-#         {
-#             "title": "Менделеев",
-#             "content": "",
-#             "sub_topics": []
-#         }
-#         ]
-#     }
-#     ]
-# }
-
-# initial_state = {
-#     "file_paths": user_files,
-#     "input_course_json": user_course_struct
-# }
-
-# final_state = DocAndCourseAgent.invoke(initial_state)
-
-# print("\n\n--- ИТОГОВОЕ СОСТОЯНИЕ ГРАФА ---")
-# pprint(final_state, sort_dicts=False)
-# Допустим получаем также uuid = 1 => сохраняем в courses_src в директорию course_1

@@ -32,14 +32,11 @@ def parse_json_to_liascript(json_data):
 
     liascript_content = []
 
-    # Заголовок курса
     liascript_content.append(f"# {data['course_title']}\n\n")
 
-    # Обрабатываем главы
     for chapter in data['chapters']:
         liascript_content.append(f"## {chapter['title']}\n\n")
 
-        # Учебный материал
         if chapter.get('content'):
             liascript_content.append("### Учебный материал\n\n")
             liascript_content.append(f"{chapter['content']}\n\n")
@@ -47,9 +44,7 @@ def parse_json_to_liascript(json_data):
         diagram = chapter.get('diagram')
         if diagram and diagram.strip() != "SKIP":
             liascript_content.append("### Визуализация\n\n")
-            # Генерируем ссылку
             img_url = encode_kroki_url(diagram.strip())
-            # Вставляем как картинку
             liascript_content.append(f"![Схема]({img_url})\n\n")
 
         # Обрабатываем вопросы
