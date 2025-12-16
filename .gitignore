@@ -302,7 +302,7 @@ cython_debug/
 ### Unignore
 !.env.example
 
-/uploaded_files
+/uploaded_files/*
 
 /chroma_db
 
@@ -310,3 +310,4 @@ cython_debug/
 
 /logs
 
+!/uploaded_files/4012fcde-e79b-4fa1-b58e-489182364643
