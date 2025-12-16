@@ -1,3 +1,4 @@
+from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -26,5 +27,5 @@ def simple_chain(system_msg: str = "You are a helpful assistant."):
     prompt = ChatPromptTemplate.from_messages(
         [("system", system_msg), ("human", "{input}")]
     )
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatMistralAI(api_key=settings.mistral_api_key, temperature=0, model_name="mistral-medium-2508")
     return prompt | llm | StrOutputParser()

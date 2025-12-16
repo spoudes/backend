@@ -6,10 +6,10 @@ from .llm import simple_chain
 def parse_json_to_liascript(json_data):
     """
     Парсит JSON и генерирует LiaScript разметку
-    
+
     Args:
         json_data: Строка JSON или словарь Python
-        
+
     Returns:
         str: Сгенерированная LiaScript разметка
     """
@@ -17,78 +17,85 @@ def parse_json_to_liascript(json_data):
         data = json.loads(json_data)
     else:
         data = json_data
-    
+
     liascript_content = []
-    
+
     # Заголовок курса
     liascript_content.append(f"# {data['course_title']}\n\n")
-    
+
     # Обрабатываем главы
     for chapter in data['chapters']:
         liascript_content.append(f"## {chapter['title']}\n\n")
-        
+
         # Учебный материал
         if chapter.get('content'):
             liascript_content.append("### Учебный материал\n\n")
             liascript_content.append(f"{chapter['content']}\n\n")
-        
+
+        diagram = chapter.get('diagram')
+        if diagram and diagram.strip() != "SKIP":
+            liascript_content.append("### Визуализация\n\n")
+            liascript_content.append("```")
+            liascript_content.append(f"{diagram.strip()}\n")
+            liascript_content.append("```\n\n")
+
         # Обрабатываем вопросы
         questions = chapter.get('questions', {})
         if any(questions.values()):
             liascript_content.append("### Вопросы для проверки\n\n")
-            
+
             # Multiple choice вопросы
             for mc_q in questions.get('multiple_choice', []):
                 liascript_content.append(f"{mc_q['question']}\n\n")
-                
+
                 # Определяем тип: single или multiple choice
                 is_single_choice = len(mc_q['correct_answers']) == 1
-                
+
                 for idx, option in enumerate(mc_q['options']):
                     is_correct = idx in mc_q['correct_answers']
-                    
+
                     if is_single_choice:
                         # Single choice: [( )] или [(X)]
                         marker = "[(X)]" if is_correct else "[( )]"
                     else:
                         # Multiple choice: [[X]] или [[ ]]
                         marker = "[[X]]" if is_correct else "[[ ]]"
-                    
+
                     liascript_content.append(f"    {marker} {option}\n")
-                
+
                 # Добавляем пояснение если есть
                 if mc_q.get('explanation'):
                     liascript_content.append("*******\n")
                     liascript_content.append(f"{mc_q['explanation']}\n")
                     liascript_content.append("*******\n")
-                
+
                 liascript_content.append("\n")
-            
+
             # True/False вопросы
             for tf_q in questions.get('true_false', []):
                 liascript_content.append(f"{tf_q['statement']}\n\n")
-                
+
                 correct = tf_q['correct_answer']
-                
+
                 liascript_content.append(f"    [(X)] Верно\n" if correct else f"    [( )] Верно\n")
                 liascript_content.append(f"    [( )] Неверно\n" if correct else f"    [(X)] Неверно\n")
-                
+
                 # Добавляем пояснение если есть
                 if tf_q.get('explanation'):
                     liascript_content.append("*******\n")
                     liascript_content.append(f"{tf_q['explanation']}\n")
                     liascript_content.append("*******\n")
-                
+
                 liascript_content.append("\n")
-            
+
             # Open-ended вопросы
             for oe_q in questions.get('open_ended', []):
                 liascript_content.append(f"{oe_q['question']}\n\n")
-                
+
                 # Используем sample_answer как ожидаемый ответ
                 if oe_q.get('sample_answer'):
                     liascript_content.append(f"    [[{oe_q['sample_answer']}]]\n")
-                
+
                 # Добавляем key_points как пояснение
                 if oe_q.get('key_points'):
                     liascript_content.append("*******\n")
@@ -96,94 +103,103 @@ def parse_json_to_liascript(json_data):
                     for point in oe_q['key_points']:
                         liascript_content.append(f"- {point}\n")
                     liascript_content.append("*******\n")
-                
+
                 liascript_content.append("\n")
-        
+
         # Рекурсивно обрабатываем подтемы
         for sub_topic in chapter.get('sub_topics', []):
             process_subtopic(sub_topic, liascript_content, level=3)
-    
+
     return ''.join(liascript_content)
 
 
 def process_subtopic(topic, content_list, level=3):
     """
     Рекурсивно обрабатывает подтемы
-    
+
     Args:
         topic: Словарь с данными подтемы
         content_list: Список для добавления строк разметки
         level: Уровень заголовка (количество #)
     """
     header_prefix = '#' * level
-    
+
     content_list.append(f"{header_prefix} {topic['title']}\n\n")
-    
+
     # Учебный материал
     if topic.get('content'):
         content_list.append(f"{topic['content']}\n\n")
-    
+
+    diagram = topic.get('diagram')
+    if diagram and diagram.strip() != "SKIP":
+        # Используем заголовок на уровень ниже текущего или просто жирный текст
+        # content_list.append(f"{'#' * (level+1)} Визуализация\n\n")
+        content_list.append("**Визуализация:**\n\n")
+        content_list.append("```")
+        content_list.append(f"{diagram.strip()}\n")
+        content_list.append("```\n\n")
+
     # Обрабатываем вопросы подтемы
     questions = topic.get('questions', {})
     if any(questions.values()):
         sub_header = '#' * (level + 1)
         content_list.append(f"{sub_header} Вопросы для проверки\n\n")
-        
+
         # Multiple choice вопросы
         for mc_q in questions.get('multiple_choice', []):
             content_list.append(f"{mc_q['question']}\n\n")
-            
+
             is_single_choice = len(mc_q['correct_answers']) == 1
-            
+
             for idx, option in enumerate(mc_q['options']):
                 is_correct = idx in mc_q['correct_answers']
-                
+
                 if is_single_choice:
                     marker = "[(X)]" if is_correct else "[( )]"
                 else:
                     marker = "[[X]]" if is_correct else "[[ ]]"
-                
+
                 content_list.append(f"    {marker} {option}\n")
-            
+
             if mc_q.get('explanation'):
                 content_list.append("*******\n")
                 content_list.append(f"{mc_q['explanation']}\n")
                 content_list.append("*******\n")
-            
+
             content_list.append("\n")
-        
+
         # True/False вопросы
         for tf_q in questions.get('true_false', []):
             content_list.append(f"{tf_q['statement']}\n\n")
-            
+
             correct = tf_q['correct_answer']
-            
+
             content_list.append(f"    [(X)] Верно\n" if correct else f"    [( )] Верно\n")
             content_list.append(f"    [( )] Неверно\n" if correct else f"    [(X)] Неверно\n")
-            
+
             if tf_q.get('explanation'):
                 content_list.append("*******\n")
                 content_list.append(f"{tf_q['explanation']}\n")
                 content_list.append("*******\n")
-            
+
             content_list.append("\n")
-        
+
         # Open-ended вопросы
         for oe_q in questions.get('open_ended', []):
             content_list.append(f"{oe_q['question']}\n\n")
-            
+
             if oe_q.get('sample_answer'):
                 content_list.append(f"    [[{oe_q['sample_answer']}]]\n")
-            
+
             if oe_q.get('key_points'):
                 content_list.append("*******\n")
                 content_list.append("**Ключевые моменты:**\n\n")
                 for point in oe_q['key_points']:
                     content_list.append(f"- {point}\n")
                 content_list.append("*******\n")
-            
+
             content_list.append("\n")
-    
+
     # Рекурсивно обрабатываем вложенные подтемы
     for sub_topic in topic.get('sub_topics', []):
         process_subtopic(sub_topic, content_list, level=level+1)
@@ -256,11 +272,11 @@ def generate_liascript_from_json(json_data, use_ai_validation=True):
     """
     # Генерируем разметку из JSON
     liascript_markup = parse_json_to_liascript(json_data)
-    
+    print("DEBUG ГЕНЕРИРУЕМ ЛИАСКРИПТ")
     # Опционально: используем ИИ для валидации
     if use_ai_validation:
         agent = build_agent()
         validated_markup = agent.invoke({"input": liascript_markup})
         return validated_markup
-    
+    print("СГЕНЕРИРОВАН КУРС")
     return liascript_markup

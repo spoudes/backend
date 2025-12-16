@@ -301,3 +301,12 @@ cython_debug/
 
 ### Unignore
 !.env.example
+
+/uploaded_files
+
+/chroma_db
+
+/course_images
+
+/logs
+
