@@ -14,6 +14,7 @@ def merge_course_data(course_file, questions_file, output_file=None):
         Объединенный словарь
     """
     # Загрузка данных курса
+    print("DEBUG МЕРДЖИМ КУРС")
     if isinstance(course_file, dict):
         course_data = course_file
     elif isinstance(course_file, (str, os.PathLike)):
@@ -36,6 +37,7 @@ def merge_course_data(course_file, questions_file, output_file=None):
         merged = {
             'title': course_chapter['title'],
             'content': course_chapter['content'],
+            'diagram': course_chapter.get('diagram'),
             'questions': {
                 'multiple_choice': [],
                 'true_false': [],

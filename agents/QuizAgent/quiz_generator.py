@@ -5,7 +5,7 @@ from typing import List, Literal, Optional, Dict
 from pydantic import BaseModel, Field, field_validator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-
+from langchain_mistralai import ChatMistralAI
 
 # ============ Определение схем данных ============
 
@@ -65,7 +65,7 @@ class OpenEndedQuestion(BaseModel):
 
 class QuestionSet(BaseModel):
     """Набор вопросов для конкретной темы"""
-    topic: str = Field(description="Название темы")
+    topic: str | None = Field(description="Название темы")
     multiple_choice: List[MultipleChoiceQuestion] = Field(
         default_factory=list,
         description="Вопросы множественного выбора"
@@ -87,9 +87,9 @@ class QuizGeneratorAgent:
 
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash", temperature: float = 0.7):
         """Инициализация агента"""
-        self.llm = ChatGoogleGenerativeAI(
+        self.llm = ChatMistralAI(
             api_key=api_key,
-            model=model,
+            model_name="mistral-medium-2508",
             temperature=temperature
         )
 
@@ -164,6 +164,36 @@ class QuizGeneratorAgent:
 
 Учебный материал:
 {content}
+
+Схема JSON:
+{{
+  "topic": "Название темы",
+  "multiple_choice": [
+    {{
+      "question": "Текст вопроса?",
+      "options": ["A", "B", "C", "D"],
+      "correct_answers": [0],
+      "explanation": "Пояснение",
+      "difficulty": "легкий"
+    }}
+  ],
+  "true_false": [
+    {{
+      "statement": "Утверждение",
+      "correct_answer": true,
+      "explanation": "Пояснение",
+      "difficulty": "средний"
+    }}
+  ],
+  "open_ended": [
+    {{
+      "question": "Вопрос?",
+      "sample_answer": "Ответ",
+      "key_points": ["Пункт 1", "Пункт 2"],
+      "difficulty": "сложный"
+    }}
+  ]
+}}
 
 Создай следующее количество вопросов каждого типа:
 - Множественный выбор: {mc_count}

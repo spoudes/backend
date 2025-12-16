@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(alias="LLM_TEMPERATURE", default=0.2)
     google_api_key: str = Field(alias="GOOGLE_API_KEY", default="")
     google_model: str = Field(alias="GOOGLE_MODEL", default="gemini-2.5-flash")
+    mistral_api_key: str = Field(alias="MISTRAL_API_KEY", default="")
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
